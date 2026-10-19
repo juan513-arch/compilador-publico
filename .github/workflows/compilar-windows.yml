@@ -89,6 +89,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Output ($salida | Select-Object -First 4 | Out-String); throw "No existe esa referencia en el código." }
           git -C fuente remote set-url origin "https://github.com/$($env:FUENTE_REPO).git"
           git -C fuente config core.autocrlf false
+          icacls $clave /grant:r "$($env:USERNAME):(F)" | Out-Null   # la clave quedó de solo lectura: se devuelve el permiso para poder borrarla
           Remove-Item -Recurse -Force $ssh
           Write-Output "Código descargado."
 
