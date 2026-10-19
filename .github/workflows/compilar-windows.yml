@@ -82,10 +82,11 @@ jobs:
           $conocidos = Join-Path $ssh "known_hosts"
           ($meta.ssh_keys | ForEach-Object { "github.com $_" }) | Set-Content -Encoding ascii $conocidos
           $env:GIT_SSH_COMMAND = "ssh -i `"$($clave -replace '\\','/')`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=`"$($conocidos -replace '\\','/')`""
-          git clone --quiet "git@github.com:$($env:FUENTE_REPO).git" fuente *> $null
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo bajar el código: ¿la clave de despliegue sigue registrada en el repositorio?" }
-          git -C fuente checkout --quiet $env:REFERENCIA *> $null
-          if ($LASTEXITCODE -ne 0) { throw "No existe esa referencia en el código." }
+          # Si falla, se muestra el motivo de git (GitHub enmascara con *** cualquier secreto, también el nombre del repositorio privado).
+          $salida = git clone --quiet "git@github.com:$($env:FUENTE_REPO).git" fuente 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Output ($salida | Select-Object -First 6 | Out-String); throw "No se pudo bajar el código: ¿la clave de despliegue sigue registrada en el repositorio?" }
+          $salida = git -C fuente checkout --quiet $env:REFERENCIA 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Output ($salida | Select-Object -First 4 | Out-String); throw "No existe esa referencia en el código." }
           git -C fuente remote set-url origin "https://github.com/$($env:FUENTE_REPO).git"
           git -C fuente config core.autocrlf false
           Remove-Item -Recurse -Force $ssh
