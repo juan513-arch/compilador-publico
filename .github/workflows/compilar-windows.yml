@@ -40,6 +40,8 @@ jobs:
         shell: pwsh
     env:
       GIT_TERMINAL_PROMPT: "0"
+      PYTHONUTF8: "1"                 # Windows imprime en cp1252 por defecto y «✔» revienta
+      PYTHONIOENCODING: "utf-8"
       SILENCIOSO: ${{ github.workspace }}\herramientas\silencioso.py
       MODO: ${{ inputs.modo }}
     steps:
