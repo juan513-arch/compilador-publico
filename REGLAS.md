@@ -23,7 +23,7 @@ Léelas antes de cambiar o subir cualquier cosa aquí (personas y sesiones de Cl
 | Secreto | Para qué | Cómo debe ser |
 |---|---|---|
 | `FUENTE_REPO` | Dirección del repositorio privado (`dueño/nombre`) | Solo como secreto: así ni su nombre aparece en este repositorio |
-| `FUENTE_TOKEN` | Leer ese repositorio al compilar | Token de GitHub de **un solo repositorio**, **solo lectura de contenido**, con **vencimiento de 30 días** |
+| `FUENTE_CLAVE_SSH` | Leer ese repositorio al compilar | Clave de despliegue (*deploy key*) **de solo lectura de un único repositorio**; no es un token de cuenta. Se revoca borrándola del repositorio privado |
 | `CLAVE_RESULTADO` | Cifrar el resultado y los registros | Aleatoria, larga; una copia queda en el llavero de la Mac del dueño, nunca en un archivo |
 | `PALABRAS_PROHIBIDAS` | Lista (separada por comas) de palabras que no deben aparecer nunca aquí | Opcional; la usa la revisión automática |
 
@@ -31,7 +31,7 @@ Ningún flujo imprime un secreto. Si un secreto llegara a verse en un registro, 
 
 ## 5. Cómo funciona el flujo de compilación
 1. Se lanza **a mano** (*Actions → Compilar Windows → Run workflow*), indicando la rama o el commit del repositorio privado.
-2. Descarga ese código con `FUENTE_TOKEN` en una carpeta temporal del ejecutor (se destruye al terminar).
+2. Descarga ese código con `FUENTE_CLAVE_SSH` en una carpeta temporal del ejecutor (se destruye al terminar).
 3. Compila y, si se pidió, corre las pruebas **en silencio**: en el registro público solo salen "bien/falló" y conteos.
 4. El resultado y los registros detallados se **cifran** con `CLAVE_RESULTADO` antes de subirse como artefacto (3 días de vida).
 5. El dueño lo baja, lo descifra en su Mac con `herramientas/descifrar.py` y lo usa en el repositorio privado.

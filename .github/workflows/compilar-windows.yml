@@ -1,18 +1,25 @@
 # REPOSITORIO PÚBLICO. Compila para Windows un código que vive en un repositorio PRIVADO (se descarga aquí, nunca se imprime).
 # Reglas: ver REGLAS.md. Solo se lanza a mano (Actions → Compilar Windows → Run workflow). El resultado y los registros
 # salen CIFRADOS (herramientas/cifrar.py); en este registro público solo se ven «bien/falló» y conteos.
-# Secretos necesarios: FUENTE_REPO, FUENTE_TOKEN (solo lectura, un repositorio, 30 días), CLAVE_RESULTADO, y opcional PALABRAS_PROHIBIDAS.
+# Secretos necesarios (modo real): FUENTE_REPO, FUENTE_CLAVE_SSH (clave de despliegue de SOLO LECTURA de un único repositorio),
+# CLAVE_RESULTADO, y opcional PALABRAS_PROHIBIDAS.
+# Modo «ensayo»: no baja ningún código ni usa secretos; prueba la mecánica (silencio, cifrado, descifrado, artefacto) con un archivo de mentira.
 name: Compilar Windows
 
 on:
   workflow_dispatch:
     inputs:
+      modo:
+        description: "real = compila el código privado; ensayo = prueba la mecánica sin código ni secretos"
+        type: choice
+        options: [real, ensayo]
+        default: real
       referencia:
-        description: "Rama, etiqueta o commit del código a compilar"
+        description: "Rama, etiqueta o commit del código a compilar (modo real)"
         required: true
         default: main
       alcance:
-        description: "completo = pruebas + compilado (lento); solo-compilar = rápido"
+        description: "completo = pruebas + compilado (lento); solo-compilar = rápido (modo real)"
         type: choice
         options: [completo, solo-compilar]
         default: completo
@@ -28,9 +35,13 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 240
+    defaults:
+      run:
+        shell: pwsh
     env:
       GIT_TERMINAL_PROMPT: "0"
       SILENCIOSO: ${{ github.workspace }}\herramientas\silencioso.py
+      MODO: ${{ inputs.modo }}
     steps:
       - name: Sin conversión de saltos de línea
         run: git config --global core.autocrlf false
@@ -50,69 +61,108 @@ jobs:
         run: python -m pip install -q "cryptography<49"
 
       - name: Bajar el código privado (no se imprime nada)
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' }}
         env:
           FUENTE_REPO: ${{ secrets.FUENTE_REPO }}
-          FUENTE_TOKEN: ${{ secrets.FUENTE_TOKEN }}
+          FUENTE_CLAVE_SSH: ${{ secrets.FUENTE_CLAVE_SSH }}
           REFERENCIA: ${{ inputs.referencia }}
         run: |
-          if (-not $env:FUENTE_REPO -or -not $env:FUENTE_TOKEN) { throw "Faltan los secretos FUENTE_REPO y FUENTE_TOKEN." }
-          git clone --quiet "https://x-access-token:$($env:FUENTE_TOKEN)@github.com/$($env:FUENTE_REPO).git" fuente *> $null
-          if ($LASTEXITCODE -ne 0) { throw "No se pudo bajar el código: ¿token vencido, sin permiso de lectura o referencia equivocada?" }
-          git -C fuente remote set-url origin "https://github.com/$($env:FUENTE_REPO).git"
+          $ErrorActionPreference = "Stop"
+          if (-not $env:FUENTE_REPO -or -not $env:FUENTE_CLAVE_SSH) { throw "Faltan los secretos FUENTE_REPO y FUENTE_CLAVE_SSH." }
+          # Clave de despliegue de SOLO LECTURA de un único repositorio; vive en este directorio temporal y se borra al terminar.
+          $ssh = Join-Path $env:RUNNER_TEMP "acceso_fuente"
+          New-Item -ItemType Directory -Force $ssh | Out-Null
+          $clave = Join-Path $ssh "id"
+          [IO.File]::WriteAllText($clave, ($env:FUENTE_CLAVE_SSH.TrimEnd() + "`n"), (New-Object Text.UTF8Encoding $false))
+          icacls $clave /inheritance:r /grant:r "$($env:USERNAME):(R)" | Out-Null
+          # Las huellas de github.com se toman de su API por HTTPS (no se confía en la primera conexión).
+          $meta = Invoke-RestMethod https://api.github.com/meta
+          $conocidos = Join-Path $ssh "known_hosts"
+          ($meta.ssh_keys | ForEach-Object { "github.com $_" }) | Set-Content -Encoding ascii $conocidos
+          $env:GIT_SSH_COMMAND = "ssh -i `"$($clave -replace '\\','/')`" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=`"$($conocidos -replace '\\','/')`""
+          git clone --quiet "git@github.com:$($env:FUENTE_REPO).git" fuente *> $null
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo bajar el código: ¿la clave de despliegue sigue registrada en el repositorio?" }
           git -C fuente checkout --quiet $env:REFERENCIA *> $null
           if ($LASTEXITCODE -ne 0) { throw "No existe esa referencia en el código." }
+          git -C fuente remote set-url origin "https://github.com/$($env:FUENTE_REPO).git"
           git -C fuente config core.autocrlf false
+          Remove-Item -Recurse -Force $ssh
           Write-Output "Código descargado."
 
       - name: Entorno de pruebas
-        if: ${{ inputs.alcance == 'completo' }}
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
         working-directory: fuente
         run: |
-          python $env:SILENCIOSO --nombre "Entorno" --log ..\salida\registros\entorno.txt -- cmd /c "python -m venv venv && venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf cryptography<49 flask && venv\Scripts\python -m playwright install chromium"
+          python $env:SILENCIOSO --nombre "Entorno: crear venv" --log ..\salida\registros\entorno_1.txt -- python -m venv venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python $env:SILENCIOSO --nombre "Entorno: dependencias" --log ..\salida\registros\entorno_2.txt -- .\venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf "cryptography<49" flask
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python $env:SILENCIOSO --nombre "Entorno: navegador de pruebas" --log ..\salida\registros\entorno_3.txt -- .\venv\Scripts\python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Pruebas del código normal en Windows
-        if: ${{ inputs.alcance == 'completo' }}
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
         working-directory: fuente
         run: python $env:SILENCIOSO --nombre "Pruebas del código normal" --log ..\salida\registros\pruebas.txt --mostrar "^(✔|✘|\d+/\d+ copias)" -- .\venv\Scripts\python pruebas\correr.py
 
       - name: Instalador con Python propio
-        if: ${{ inputs.alcance == 'completo' }}
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
         working-directory: fuente
         run: python $env:SILENCIOSO --nombre "Instalador" --log ..\salida\registros\instalador.txt -- pwsh pruebas/windows/probar_iniciar.ps1 -PythonEquipo (Get-Command python).Source
 
       - name: Compilar (Python propio + Nuitka)
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' }}
         working-directory: fuente
         run: |
           if ("${{ inputs.alcance }}" -eq "solo-compilar") {
             python -m venv venv
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             .\venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf "cryptography<49" flask
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           python $env:SILENCIOSO --nombre "Compilar" --log ..\salida\registros\compilar.txt -- .\venv\Scripts\python Motor\compilar.py
 
       - name: Pruebas del motor compilado
-        if: ${{ inputs.alcance == 'completo' }}
-        shell: pwsh
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
         working-directory: fuente
         run: |
           python $env:SILENCIOSO --nombre "Navegador del compilado" --log ..\salida\registros\navegador.txt -- Motor\.herramientas\venv-windows-x64\Scripts\python -m playwright install chromium
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python $env:SILENCIOSO --nombre "Pruebas del compilado" --log ..\salida\registros\compilado.txt --mostrar "^(✔|✘|\d+/\d+ copias)" -- .\venv\Scripts\python pruebas\correr.py --compilado
+
+      - name: Ensayo de la mecánica (sin código ni secretos)
+        if: ${{ inputs.modo == 'ensayo' }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force fuente\Motor\.compilado\windows-comercial | Out-Null
+          Set-Content -Encoding utf8 fuente\Motor\.compilado\windows-comercial\ensayo.txt "contenido de ensayo con acentos: ñ á é"
+          python $env:SILENCIOSO --nombre "Paso de ensayo" --log salida\registros\ensayo.txt --mostrar "^✔" -- python -c "print('✔ visible en el registro'); print('detalle que NO debe verse en el registro público')"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Cifrar el resultado y los registros
         if: ${{ always() }}
-        shell: pwsh
         env:
           CLAVE_RESULTADO: ${{ secrets.CLAVE_RESULTADO }}
         run: |
+          $ErrorActionPreference = "Stop"
+          # En el ensayo no hay secretos: se usa una clave de un solo uso para comprobar la ida y vuelta del cifrado.
+          if ($env:MODO -eq "ensayo" -and -not $env:CLAVE_RESULTADO) {
+            $env:CLAVE_RESULTADO = -join ((48..122) | Get-Random -Count 40 | ForEach-Object { [char]$_ })
+          }
           New-Item -ItemType Directory -Force salida | Out-Null
-          if (Test-Path fuente\Motor\.compilado) { python herramientas\cifrar.py salida\resultado.cif fuente\Motor\.compilado }
-          if (Test-Path salida\registros) { python herramientas\cifrar.py salida\registros.cif salida\registros }
+          if (Test-Path fuente\Motor\.compilado) { python herramientas\cifrar.py salida\resultado.cif fuente\Motor\.compilado; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          if (Test-Path salida\registros) { python herramientas\cifrar.py salida\registros.cif salida\registros; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+          if ($env:MODO -eq "ensayo") {
+            python herramientas\descifrar.py salida\resultado.cif ensayo_descifrado
+            if ($LASTEXITCODE -ne 0) { throw "El descifrado falló" }
+            $texto = Get-Content -Raw -Encoding utf8 ensayo_descifrado\.compilado\windows-comercial\ensayo.txt
+            if ($texto -notmatch "ñ á é") { throw "El descifrado no devolvió lo cifrado" }
+            Write-Output "Ida y vuelta del cifrado: bien."
+            Remove-Item -Recurse -Force ensayo_descifrado
+          }
           # Nada en claro sale de aquí: solo los .cif se suben.
           Get-ChildItem salida -Recurse -File | Where-Object { $_.Extension -ne ".cif" } | Remove-Item -Force
+          Get-ChildItem salida -File | ForEach-Object { Write-Output ("Se sube: " + $_.Name + " (" + $_.Length + " bytes)") }
 
       - uses: actions/upload-artifact@v5
         if: ${{ always() }}
