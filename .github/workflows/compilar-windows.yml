@@ -1,0 +1,123 @@
+# REPOSITORIO PÚBLICO. Compila para Windows un código que vive en un repositorio PRIVADO (se descarga aquí, nunca se imprime).
+# Reglas: ver REGLAS.md. Solo se lanza a mano (Actions → Compilar Windows → Run workflow). El resultado y los registros
+# salen CIFRADOS (herramientas/cifrar.py); en este registro público solo se ven «bien/falló» y conteos.
+# Secretos necesarios: FUENTE_REPO, FUENTE_TOKEN (solo lectura, un repositorio, 30 días), CLAVE_RESULTADO, y opcional PALABRAS_PROHIBIDAS.
+name: Compilar Windows
+
+on:
+  workflow_dispatch:
+    inputs:
+      referencia:
+        description: "Rama, etiqueta o commit del código a compilar"
+        required: true
+        default: main
+      alcance:
+        description: "completo = pruebas + compilado (lento); solo-compilar = rápido"
+        type: choice
+        options: [completo, solo-compilar]
+        default: completo
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compilar-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 240
+    env:
+      GIT_TERMINAL_PROMPT: "0"
+      SILENCIOSO: ${{ github.workspace }}\herramientas\silencioso.py
+    steps:
+      - name: Sin conversión de saltos de línea
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Este repositorio sigue limpio
+        env:
+          PALABRAS_PROHIBIDAS: ${{ secrets.PALABRAS_PROHIBIDAS }}
+        run: python herramientas/revisar_limpio.py
+
+      - name: Herramientas de cifrado
+        run: python -m pip install -q "cryptography<49"
+
+      - name: Bajar el código privado (no se imprime nada)
+        shell: pwsh
+        env:
+          FUENTE_REPO: ${{ secrets.FUENTE_REPO }}
+          FUENTE_TOKEN: ${{ secrets.FUENTE_TOKEN }}
+          REFERENCIA: ${{ inputs.referencia }}
+        run: |
+          if (-not $env:FUENTE_REPO -or -not $env:FUENTE_TOKEN) { throw "Faltan los secretos FUENTE_REPO y FUENTE_TOKEN." }
+          git clone --quiet "https://x-access-token:$($env:FUENTE_TOKEN)@github.com/$($env:FUENTE_REPO).git" fuente *> $null
+          if ($LASTEXITCODE -ne 0) { throw "No se pudo bajar el código: ¿token vencido, sin permiso de lectura o referencia equivocada?" }
+          git -C fuente remote set-url origin "https://github.com/$($env:FUENTE_REPO).git"
+          git -C fuente checkout --quiet $env:REFERENCIA *> $null
+          if ($LASTEXITCODE -ne 0) { throw "No existe esa referencia en el código." }
+          git -C fuente config core.autocrlf false
+          Write-Output "Código descargado."
+
+      - name: Entorno de pruebas
+        if: ${{ inputs.alcance == 'completo' }}
+        shell: pwsh
+        working-directory: fuente
+        run: |
+          python $env:SILENCIOSO --nombre "Entorno" --log ..\salida\registros\entorno.txt -- cmd /c "python -m venv venv && venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf cryptography<49 flask && venv\Scripts\python -m playwright install chromium"
+
+      - name: Pruebas del código normal en Windows
+        if: ${{ inputs.alcance == 'completo' }}
+        shell: pwsh
+        working-directory: fuente
+        run: python $env:SILENCIOSO --nombre "Pruebas del código normal" --log ..\salida\registros\pruebas.txt --mostrar "^(✔|✘|\d+/\d+ copias)" -- .\venv\Scripts\python pruebas\correr.py
+
+      - name: Instalador con Python propio
+        if: ${{ inputs.alcance == 'completo' }}
+        shell: pwsh
+        working-directory: fuente
+        run: python $env:SILENCIOSO --nombre "Instalador" --log ..\salida\registros\instalador.txt -- pwsh pruebas/windows/probar_iniciar.ps1 -PythonEquipo (Get-Command python).Source
+
+      - name: Compilar (Python propio + Nuitka)
+        shell: pwsh
+        working-directory: fuente
+        run: |
+          if ("${{ inputs.alcance }}" -eq "solo-compilar") {
+            python -m venv venv
+            .\venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf "cryptography<49" flask
+          }
+          python $env:SILENCIOSO --nombre "Compilar" --log ..\salida\registros\compilar.txt -- .\venv\Scripts\python Motor\compilar.py
+
+      - name: Pruebas del motor compilado
+        if: ${{ inputs.alcance == 'completo' }}
+        shell: pwsh
+        working-directory: fuente
+        run: |
+          python $env:SILENCIOSO --nombre "Navegador del compilado" --log ..\salida\registros\navegador.txt -- Motor\.herramientas\venv-windows-x64\Scripts\python -m playwright install chromium
+          python $env:SILENCIOSO --nombre "Pruebas del compilado" --log ..\salida\registros\compilado.txt --mostrar "^(✔|✘|\d+/\d+ copias)" -- .\venv\Scripts\python pruebas\correr.py --compilado
+
+      - name: Cifrar el resultado y los registros
+        if: ${{ always() }}
+        shell: pwsh
+        env:
+          CLAVE_RESULTADO: ${{ secrets.CLAVE_RESULTADO }}
+        run: |
+          New-Item -ItemType Directory -Force salida | Out-Null
+          if (Test-Path fuente\Motor\.compilado) { python herramientas\cifrar.py salida\resultado.cif fuente\Motor\.compilado }
+          if (Test-Path salida\registros) { python herramientas\cifrar.py salida\registros.cif salida\registros }
+          # Nada en claro sale de aquí: solo los .cif se suben.
+          Get-ChildItem salida -Recurse -File | Where-Object { $_.Extension -ne ".cif" } | Remove-Item -Force
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ always() }}
+        with:
+          name: resultado-cifrado
+          path: salida/*.cif
+          retention-days: 3
+          if-no-files-found: warn

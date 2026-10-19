@@ -1,0 +1,4 @@
+#!/bin/sh
+# Antes de cada commit: lo que se va a confirmar tiene que pasar la revisión de «repositorio público limpio».
+RAIZ="$(git rev-parse --show-toplevel)"
+exec python3 "$RAIZ/herramientas/revisar_limpio.py" --staged --remoto

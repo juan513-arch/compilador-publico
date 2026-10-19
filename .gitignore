@@ -1,0 +1,35 @@
+# LISTA BLANCA. Este repositorio es PÚBLICO: solo se puede subir lo que se permite abajo.
+# Todo lo demás se ignora a propósito (ver REGLAS.md, punto 3). No agregar excepciones sin leer REGLAS.md.
+/*
+!/.gitignore
+!/README.md
+!/REGLAS.md
+!/.github/
+!/herramientas/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/*.yml
+herramientas/*
+!herramientas/*.py
+!herramientas/*.sh
+!herramientas/hooks/
+herramientas/hooks/*
+!herramientas/hooks/pre-commit
+!herramientas/hooks/pre-push
+# Pase lo que pase, esto nunca:
+*.pyd
+*.so
+*.dll
+*.exe
+*.zip
+*.tar
+*.gz
+*.cif
+*.pdf
+*.pem
+*.key
+.env
+config*.json
+activacion*.json
+__pycache__/

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Antes de cada push: se revisa TODO lo versionado y que el destino sea este repositorio público (y ningún otro).
+RAIZ="$(git rev-parse --show-toplevel)"
+exec python3 "$RAIZ/herramientas/revisar_limpio.py" --remoto

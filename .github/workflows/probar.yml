@@ -1,0 +1,14 @@
+# Prueba de una línea: comprueba que GitHub Actions corre en este repositorio público (sin secretos, sin código ajeno).
+name: Probar que Actions corre
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  hola:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - run: echo "Actions funciona en este repositorio público."
