@@ -1,7 +1,7 @@
 #!/bin/sh
 # Genera la clave que cifra el resultado de la compilación: queda en el LLAVERO de esta Mac (para descifrar) y como secreto
 # CLAVE_RESULTADO del repositorio público en GitHub (para cifrar). La clave NUNCA se imprime ni se guarda en un archivo.
-# Lo corre el dueño, en su terminal:   /bin/sh /Users/juanpablo/Documentos/compilador-publico/herramientas/generar_clave.sh
+# Lo corre el dueño, en su terminal:   /bin/sh ~/Documentos/compilador-publico/herramientas/generar_clave.sh
 # Si ya existía una clave, la reemplaza en los dos lados (lo cifrado antes con la anterior ya no se podrá abrir).
 set -e
 REPO="juan513-arch/compilador-publico"
