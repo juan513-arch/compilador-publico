@@ -19,9 +19,9 @@ on:
         required: true
         default: main
       alcance:
-        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales (modo real)"
+        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales; lector-windows = solo el lector de texto de Windows (modo real)"
         type: choice
-        options: [completo, solo-compilar, auditoria-portales]
+        options: [completo, solo-compilar, auditoria-portales, lector-windows]
         default: completo
 
 permissions:
@@ -94,7 +94,7 @@ jobs:
           Write-Output "Código descargado."
 
       - name: Entorno de pruebas
-        if: ${{ inputs.modo == 'real' && (inputs.alcance == 'completo' || inputs.alcance == 'auditoria-portales') }}
+        if: ${{ inputs.modo == 'real' && (inputs.alcance == 'completo' || inputs.alcance == 'auditoria-portales' || inputs.alcance == 'lector-windows') }}
         working-directory: fuente
         run: |
           python $env:SILENCIOSO --nombre "Entorno: crear venv" --log ..\salida\registros\entorno_1.txt -- python -m venv venv
@@ -103,6 +103,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python $env:SILENCIOSO --nombre "Entorno: navegador de pruebas" --log ..\salida\registros\entorno_3.txt -- .\venv\Scripts\python -m playwright install chromium
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Lector de texto de Windows
+        if: ${{ inputs.modo == 'real' && (inputs.alcance == 'auditoria-portales' || inputs.alcance == 'lector-windows') }}
+        working-directory: fuente
+        run: python $env:SILENCIOSO --nombre "Lector de texto de Windows" --log ..\salida\registros\lector.txt --mostrar "^(✔|✘|•)" -- .\venv\Scripts\python pruebas\windows\auditoria_lector.py
 
       - name: Auditoría con portales reales (solo datos públicos)
         if: ${{ inputs.modo == 'real' && inputs.alcance == 'auditoria-portales' }}
@@ -120,7 +125,7 @@ jobs:
         run: python $env:SILENCIOSO --nombre "Instalador" --log ..\salida\registros\instalador.txt -- pwsh pruebas/windows/probar_iniciar.ps1 -PythonEquipo (Get-Command python).Source
 
       - name: Compilar (Python propio + Nuitka)
-        if: ${{ inputs.modo == 'real' && inputs.alcance != 'auditoria-portales' }}
+        if: ${{ inputs.modo == 'real' && inputs.alcance != 'auditoria-portales' && inputs.alcance != 'lector-windows' }}
         working-directory: fuente
         run: |
           if ("${{ inputs.alcance }}" -eq "solo-compilar") {
