@@ -19,9 +19,9 @@ on:
         required: true
         default: main
       alcance:
-        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales; lector-windows = solo el lector de texto de Windows (modo real)"
+        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales; lector-windows = solo el lector de texto de Windows; ventana = abre la ventana nativa (WebView2) y revisa el panel, sin compilar (modo real)"
         type: choice
-        options: [completo, solo-compilar, auditoria-portales, lector-windows]
+        options: [completo, solo-compilar, auditoria-portales, lector-windows, ventana]
         default: completo
 
 permissions:
@@ -114,6 +114,18 @@ jobs:
         working-directory: fuente
         run: python $env:SILENCIOSO --nombre "Auditoría con portales reales" --log ..\salida\registros\auditoria.txt --mostrar "^(✔|✘|•)" -- .\venv\Scripts\python pruebas\windows\auditoria_real.py
 
+      - name: Ventana nativa del panel (WebView2)
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'ventana' }}
+        working-directory: fuente
+        run: |
+          python $env:SILENCIOSO --nombre "Entorno de la ventana: crear venv" --log ..\salida\registros\entorno_ventana_1.txt -- python -m venv venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python $env:SILENCIOSO --nombre "Entorno de la ventana: dependencias" --log ..\salida\registros\entorno_ventana_2.txt -- .\venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf plyer flask pillow "cryptography<49" pywebview
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $copia = (Get-ChildItem Motor\Distribucion -Directory | Where-Object { $_.Name -like "*Windows-Comercial" } | Select-Object -First 1).FullName
+          if (-not $copia) { throw "No hay copia de Windows para probar." }
+          python $env:SILENCIOSO --nombre "Ventana nativa del panel" --log ..\salida\registros\ventana.txt --mostrar "^(✔|✘|•|\d+/\d+ comprobaciones)" -- .\venv\Scripts\python pruebas\windows\probar_ventana.py $copia --salida ..\salida\registros\ventana --persistente
+
       - name: Pruebas del código normal en Windows
         if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
         working-directory: fuente
@@ -125,7 +137,7 @@ jobs:
         run: python $env:SILENCIOSO --nombre "Instalador" --log ..\salida\registros\instalador.txt -- pwsh pruebas/windows/probar_iniciar.ps1 -PythonEquipo (Get-Command python).Source
 
       - name: Compilar (Python propio + Nuitka)
-        if: ${{ inputs.modo == 'real' && inputs.alcance != 'auditoria-portales' && inputs.alcance != 'lector-windows' }}
+        if: ${{ inputs.modo == 'real' && inputs.alcance != 'auditoria-portales' && inputs.alcance != 'lector-windows' && inputs.alcance != 'ventana' }}
         working-directory: fuente
         run: |
           if ("${{ inputs.alcance }}" -eq "solo-compilar") {
