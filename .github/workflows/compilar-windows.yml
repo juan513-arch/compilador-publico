@@ -19,9 +19,9 @@ on:
         required: true
         default: main
       alcance:
-        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales; lector-windows = solo el lector de texto de Windows; ventana = abre la ventana nativa (WebView2) y revisa el panel, sin compilar (modo real)"
+        description: "completo = pruebas + compilado (lento); solo-compilar = rápido; auditoria-portales = prueba en Windows con portales reales; lector-windows = solo el lector de texto de Windows; ventana = abre la ventana nativa (WebView2) y revisa el panel, sin compilar; actualizacion = compila, instala el zip publicado y lo actualiza contra un servidor local, y revisa la ventana (modo real)"
         type: choice
-        options: [completo, solo-compilar, auditoria-portales, lector-windows, ventana]
+        options: [completo, solo-compilar, auditoria-portales, lector-windows, ventana, actualizacion]
         default: completo
 
 permissions:
@@ -136,6 +136,16 @@ jobs:
         working-directory: fuente
         run: python $env:SILENCIOSO --nombre "Instalador" --log ..\salida\registros\instalador.txt -- pwsh pruebas/windows/probar_iniciar.ps1 -PythonEquipo (Get-Command python).Source
 
+      - name: Ensayo de actualización - entorno y número nuevo
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'actualizacion' }}
+        working-directory: fuente
+        run: |
+          python $env:SILENCIOSO --nombre "Entorno del ensayo: crear venv" --log ..\salida\registros\entorno_ensayo_1.txt -- python -m venv venv
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python $env:SILENCIOSO --nombre "Entorno del ensayo: dependencias" --log ..\salida\registros\entorno_ensayo_2.txt -- .\venv\Scripts\python -m pip install -q colorama playwright==1.63.0 pypdf plyer flask pillow "cryptography<49" pywebview
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python $env:SILENCIOSO --nombre "Ensayo: número nuevo" --log ..\salida\registros\ensayo_preparar.txt --mostrar "^(✔|✘|•)" -- .\venv\Scripts\python pruebas\windows\ensayo_actualizacion.py preparar
+
       - name: Compilar (Python propio + Nuitka)
         if: ${{ inputs.modo == 'real' && inputs.alcance != 'auditoria-portales' && inputs.alcance != 'lector-windows' && inputs.alcance != 'ventana' }}
         working-directory: fuente
@@ -147,6 +157,11 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           python $env:SILENCIOSO --nombre "Compilar" --log ..\salida\registros\compilar.txt -- .\venv\Scripts\python Motor\compilar.py
+
+      - name: Ensayo de actualización desde la versión publicada
+        if: ${{ inputs.modo == 'real' && inputs.alcance == 'actualizacion' }}
+        working-directory: fuente
+        run: python $env:SILENCIOSO --nombre "Ensayo de actualización" --log ..\salida\registros\ensayo.txt --mostrar "^(✔|✘|•|\d+/\d+ comprobaciones)" -- .\venv\Scripts\python pruebas\windows\ensayo_actualizacion.py ensayar ..\salida\registros\ensayo
 
       - name: Pruebas del motor compilado
         if: ${{ inputs.modo == 'real' && inputs.alcance == 'completo' }}
