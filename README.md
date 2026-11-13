@@ -10,7 +10,7 @@ Solo guarda la automatización que compila un programa para Windows usando los m
 > | Nombre | `compilador-publico` | otro nombre |
 > | Qué hay | flujos de compilación y reglas | el código de la aplicación |
 > | Visible para | cualquiera | solo su dueño |
-> | Carpeta en la Mac | `~/Documentos/compilador-publico` | otra carpeta, nunca dentro de ésta |
+> | Carpeta en la Mac | `~/Centro de trabajo/compilador-publico` | otra carpeta, nunca dentro de ésta |
 >
 > Compruébalo siempre con `git remote -v`: aquí la dirección **termina en `/compilador-publico`**. Si no termina así, **no hagas push**.
 
